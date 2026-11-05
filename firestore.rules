@@ -1,0 +1,56 @@
+rules_version = '2';
+
+// Regeln für den Terminfinder.
+// - Jeder mit dem Link darf eine Terminsuche und alle Einträge lesen.
+// - Jeder (anonym angemeldete) Browser darf Terminsuchen anlegen.
+// - Jede Person darf nur ihren eigenen Eintrag schreiben.
+// - Nur wer die Terminsuche erstellt hat, darf den festen Termin setzen.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isDateString(v) {
+      return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    match /polls/{pollId} {
+      allow read: if true;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['title', 'note', 'start', 'end', 'owner', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 100
+        && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 300))
+        && isDateString(request.resource.data.start)
+        && isDateString(request.resource.data.end)
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if signedIn()
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fixed'])
+        && (request.resource.data.fixed == null || (request.resource.data.fixed is string && request.resource.data.fixed.size() <= 30));
+
+      allow delete: if signedIn() && resource.data.owner == request.auth.uid;
+
+      match /participants/{uid} {
+        allow read: if true;
+
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['name', 'avail', 'updatedAt'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 40
+          && request.resource.data.avail is map
+          && request.resource.data.avail.size() <= 300;
+
+        allow delete: if signedIn() && request.auth.uid == uid;
+      }
+    }
+  }
+}

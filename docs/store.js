@@ -21,7 +21,9 @@ async function firebaseStore(config) {
     import(`${base}/firebase-auth.js`),
   ]);
   const app = initializeApp(config);
-  const db = fs.getFirestore(app);
+  // Long-Polling statt WebChannel-Streaming: funktioniert auch in
+  // eingeschränkten Browsern (In-App-Browser, Firmen-Proxys, Blocker).
+  const db = fs.initializeFirestore(app, { experimentalForceLongPolling: true });
   const auth = au.getAuth(app);
   await au.signInAnonymously(auth);
   const uid = auth.currentUser.uid;
@@ -48,16 +50,39 @@ async function firebaseStore(config) {
         onError,
       );
     },
-    saveMe(id, data) {
-      return fs.setDoc(fs.doc(db, "polls", id, "participants", uid), {
-        ...data,
-        updatedAt: fs.serverTimestamp(),
-      });
+    async saveMe(id, data) {
+      const write = () =>
+        withTimeout(
+          fs.setDoc(fs.doc(db, "polls", id, "participants", uid), {
+            ...data,
+            updatedAt: fs.serverTimestamp(),
+          }),
+          20000,
+        );
+      try {
+        await write();
+      } catch (e) {
+        // Abgelaufene oder fehlende Anmeldung: Token erneuern und einmal wiederholen.
+        if (e && (e.code === "permission-denied" || e.code === "unauthenticated") && auth.currentUser) {
+          await auth.currentUser.getIdToken(true);
+          await write();
+        } else {
+          throw e;
+        }
+      }
     },
     setFixed(id, fixed) {
       return fs.updateDoc(fs.doc(db, "polls", id), { fixed: fixed || null });
     },
   };
+}
+
+function withTimeout(promise, ms) {
+  let t;
+  const timeout = new Promise((_, reject) => {
+    t = setTimeout(() => reject(Object.assign(new Error("Keine Antwort vom Server"), { code: "timeout" })), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
 }
 
 function demoStore() {

@@ -485,7 +485,15 @@ function scheduleSave() {
   S.saveTimer = setTimeout(save, 600);
 }
 
-async function save() {
+const SAVE_ERRORS = {
+  "permission-denied": "Die Datenbank hat den Eintrag abgelehnt.",
+  unauthenticated: "Die Anmeldung im Hintergrund ist abgelaufen. Lade die Seite bitte neu.",
+  unavailable: "Keine Verbindung zum Server.",
+  timeout: "Der Server antwortet nicht.",
+  "resource-exhausted": "Gerade zu viele Anfragen.",
+};
+
+async function save(attempt = 1) {
   const status = document.getElementById("save-status");
   const name = S.me.name.trim();
   if (!name) return;
@@ -496,7 +504,15 @@ async function save() {
     if (status) setStatus(status, "Gespeichert ✓ Die anderen sehen deine Zeiten sofort.");
   } catch (e) {
     console.error(e);
-    if (status) setStatus(status, "Speichern hat nicht geklappt. Prüfe deine Verbindung, es wird beim nächsten Tippen erneut versucht.", true);
+    const code = (e && e.code) || (e && e.name) || "unbekannt";
+    if (attempt < 3 && code !== "permission-denied") {
+      if (status) setStatus(status, "Speichern klappt gerade nicht, neuer Versuch …");
+      clearTimeout(S.saveTimer);
+      S.saveTimer = setTimeout(() => save(attempt + 1), 2500 * attempt);
+      return;
+    }
+    const why = SAVE_ERRORS[code] || "Unbekannter Fehler.";
+    if (status) setStatus(status, `Speichern hat nicht geklappt. ${why} Tippe ein Feld erneut an, um es noch mal zu versuchen. (Fehlercode: ${code})`, true);
   }
 }
 

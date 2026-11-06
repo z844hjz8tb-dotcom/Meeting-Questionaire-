@@ -44,3 +44,19 @@ Dann <http://localhost:8000> öffnen. Ohne eingetragene Firebase-Werte läuft di
 ## Kosten
 
 Der kostenlose Spark-Tarif von Firebase reicht für einen Freundeskreis bei Weitem (50.000 Lesevorgänge und 20.000 Schreibvorgänge pro Tag).
+
+## Stand (November 2026)
+
+Läuft live unter <https://z844hjz8tb-dotcom.github.io/Meeting-Questionaire-/> mit dem Firebase-Projekt `terminfinder-bcf99`.
+
+Fertig:
+- Terminsuche erstellen, Link teilen (kopieren oder WhatsApp, mit Vorschau-Karte)
+- Eintragen pro Tag: Mittag, Nachmittag, Abend (kann / vielleicht / kann nicht), Schnell-Füllen
+- Live-Übersicht: beste Termine, Kalender nach KW, wer wann kann
+- Ersteller legt den Termin fest; alle können ihn in den Kalender übernehmen (.ics, auf dem iPhone per data:-URL, und Google Kalender)
+- Speichern mit automatischer Wiederholung und Fehlercode in der Meldung
+
+Ideen für später:
+1. Eintrag auf anderem Gerät übernehmen („Bist du Julia?“), damit niemand doppelt in der Liste steht
+2. „Generell Zeit“ als Wochenmuster merken und neue Terminsuchen damit vorausfüllen
+3. Terminsuche bearbeiten oder löschen, vergangene Tage ausblenden, Kommentar pro Person, App-Symbol für den Homescreen

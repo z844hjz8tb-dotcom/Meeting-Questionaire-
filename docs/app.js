@@ -408,8 +408,15 @@ function googleCalendarUrl(p) {
 
 function fixedBox(p) {
   const slot = slotOf(p.fixed.split("_")[1]);
-  const icsUrl = URL.createObjectURL(new Blob([buildIcs(p)], { type: "text/calendar;charset=utf-8" }));
+  const ics = buildIcs(p);
   const fileName = `${p.title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "termin"}.ics`;
+  // iPhone/iPad: Safari zeigt bei blob:-Links zwar die Kalender-Vorschau,
+  // "Hinzufügen" bewirkt dort aber oft nichts. Eine data:-URL ohne
+  // download-Attribut öffnet Safari direkt als Kalendertermin.
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const icsUrl = isIOS
+    ? `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`
+    : URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
   return h(
     "div",
     { class: "fixed" },
@@ -418,7 +425,7 @@ function fixedBox(p) {
     h(
       "div",
       { class: "chips" },
-      h("a", { class: "btn btn-primary", href: icsUrl, download: fileName, text: "In meinen Kalender" }),
+      h("a", { class: "btn btn-primary", href: icsUrl, download: isIOS ? null : fileName, text: "In meinen Kalender" }),
       h("a", { class: "btn", href: googleCalendarUrl(p), target: "_blank", rel: "noopener", text: "Google Kalender" }),
     ),
   );

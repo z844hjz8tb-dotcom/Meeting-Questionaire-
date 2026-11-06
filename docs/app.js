@@ -1,9 +1,9 @@
 import { createStore } from "./store.js";
 
 const SLOTS = [
-  { id: "mittag", label: "Mittag", hint: "12–15 Uhr" },
-  { id: "nachmittag", label: "Nachmittag", hint: "15–18 Uhr" },
-  { id: "abend", label: "Abend", hint: "ab 18 Uhr" },
+  { id: "mittag", label: "Mittag", hint: "12–15 Uhr", from: 12, to: 15 },
+  { id: "nachmittag", label: "Nachmittag", hint: "15–18 Uhr", from: 15, to: 18 },
+  { id: "abend", label: "Abend", hint: "ab 18 Uhr", from: 18, to: 22 },
 ];
 const NEXT = { "": "y", y: "m", m: "n", n: "" };
 const MARK = { "": "", y: "✓", m: "?", n: "✕" };
@@ -347,13 +347,79 @@ function renderPollHead() {
     h("p", { class: "eyebrow" }, h("a", { href: location.pathname, style: "color:inherit", text: "Terminfinder" }), ` · ${short(parse(p.start))} bis ${short(parse(p.end))}`),
     h("h1", { text: p.title }),
     p.note ? h("p", { class: "note muted", text: p.note }) : null,
-    p.fixed ? h("p", { class: "fixed", text: `Termin steht: ${describeKey(p.fixed)}` }) : null,
+    p.fixed ? fixedBox(p) : null,
     h(
       "div",
       { class: "share" },
       linkInput,
       copyBtn,
       h("a", { class: "small", href: `https://wa.me/?text=${encodeURIComponent(waText)}`, target: "_blank", rel: "noopener", text: "In WhatsApp teilen" }),
+    ),
+  );
+}
+
+// ---------- Kalender-Export ----------
+function eventTimes(key) {
+  const [date, slotId] = key.split("_");
+  const slot = slotOf(slotId);
+  const ymd = date.replaceAll("-", "");
+  return { start: `${ymd}T${pad(slot.from)}0000`, end: `${ymd}T${pad(slot.to)}0000` };
+}
+
+function icsEscape(text) {
+  return String(text).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+
+function buildIcs(p) {
+  const { start, end } = eventTimes(p.fixed);
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const details = [p.note, `Terminsuche: ${pollUrl()}`].filter(Boolean).join("\n");
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Terminfinder//DE",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${S.pollId}-${p.fixed}@terminfinder`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART:${start}`,
+    `DTEND:${end}`,
+    `SUMMARY:${icsEscape(p.title)}`,
+    `DESCRIPTION:${icsEscape(details)}`,
+    `URL:${pollUrl()}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+}
+
+function googleCalendarUrl(p) {
+  const { start, end } = eventTimes(p.fixed);
+  const q = new URLSearchParams({
+    action: "TEMPLATE",
+    text: p.title,
+    dates: `${start}/${end}`,
+    details: [p.note, `Terminsuche: ${pollUrl()}`].filter(Boolean).join("\n"),
+    ctz: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin",
+  });
+  return `https://calendar.google.com/calendar/render?${q}`;
+}
+
+function fixedBox(p) {
+  const slot = slotOf(p.fixed.split("_")[1]);
+  const icsUrl = URL.createObjectURL(new Blob([buildIcs(p)], { type: "text/calendar;charset=utf-8" }));
+  const fileName = `${p.title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "termin"}.ics`;
+  return h(
+    "div",
+    { class: "fixed" },
+    h("p", { text: `Termin steht: ${describeKey(p.fixed)}` }),
+    h("p", { class: "small muted", text: `Im Kalender eingetragen als ${pad(slot.from)}:00 bis ${pad(slot.to)}:00 Uhr.` }),
+    h(
+      "div",
+      { class: "chips" },
+      h("a", { class: "btn btn-primary", href: icsUrl, download: fileName, text: "In meinen Kalender" }),
+      h("a", { class: "btn", href: googleCalendarUrl(p), target: "_blank", rel: "noopener", text: "Google Kalender" }),
     ),
   );
 }

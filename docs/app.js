@@ -103,7 +103,11 @@ const S = {
   tab: "eintragen",
   selected: null,
   confirmClear: false,
+  items: [],
+  itemsError: null,
+  bringBusy: false,
 };
+const TABS = ["eintragen", "uebersicht", "mitbringen"];
 
 // ---------- Start ----------
 main();
@@ -152,6 +156,23 @@ function renderLanding() {
       h("label", {}, "Bis", h("input", { id: "f-end", name: "end", type: "date", value: end, required: true })),
     ),
     h("p", { class: "muted small", text: "Jeder kann pro Tag Mittag, Nachmittag und Abend markieren. Maximal 3 Monate." }),
+    h(
+      "label",
+      { class: "check" },
+      h("input", {
+        id: "f-bring",
+        name: "bring",
+        type: "checkbox",
+        onchange: (e) => (document.getElementById("f-wish-wrap").hidden = !e.target.checked),
+      }),
+      h("span", {}, "Mitbring-Liste anhängen ", h("span", { class: "muted small", text: "(z. B. für eine Party: wer bringt was mit?)" })),
+    ),
+    h(
+      "label",
+      { id: "f-wish-wrap", hidden: true },
+      h("span", {}, "Was wird gebraucht? ", h("span", { class: "muted small", text: "(optional, eine Sache pro Zeile)" })),
+      h("textarea", { id: "f-wish", name: "wish", rows: 4, placeholder: "Salat\nGetränke\nBrot\nNachtisch" }),
+    ),
     h("div", {}, h("button", { class: "btn-primary", type: "submit", text: "Terminsuche erstellen" })),
     status,
   );
@@ -169,7 +190,17 @@ function renderLanding() {
     setStatus(status, "Wird erstellt …");
     form.querySelector("button[type=submit]").disabled = true;
     try {
-      const id = await S.store.createPoll({ title, note, start: s, end: en });
+      const bring = fd.get("bring") === "on";
+      const wishes = bring
+        ? String(fd.get("wish") || "")
+            .split(/\n/)
+            .map((w) => w.trim().slice(0, 80))
+            .filter(Boolean)
+            .slice(0, 50)
+        : [];
+      const id = await S.store.createPoll({ title, note, start: s, end: en, ...(bring ? { bring: true } : {}) });
+      for (const text of wishes) await S.store.addItem(id, { text, mine: false });
+      if (bring) S.tab = wishes.length ? "mitbringen" : "eintragen";
       history.pushState(null, "", `?p=${encodeURIComponent(id)}`);
       S.pollId = id;
       openPoll();
@@ -242,6 +273,23 @@ function openPoll() {
     },
     onErr,
   );
+  S.store.watchItems(
+    S.pollId,
+    (items) => {
+      S.items = items;
+      S.itemsError = null;
+      if (S.poll) {
+        renderTabs();
+        if (S.tab === "mitbringen") renderBring();
+      }
+    },
+    (e) => {
+      // Die Mitbring-Liste darf die restliche Seite nie lahmlegen.
+      console.error(e);
+      S.itemsError = (e && e.code) || "unbekannt";
+      if (S.poll && S.tab === "mitbringen") renderBring();
+    },
+  );
 }
 
 function rememberRecent(id, title) {
@@ -275,6 +323,7 @@ function buildPollShell() {
       { class: "tabs", role: "tablist" },
       tabButton("eintragen", "Meine Zeiten"),
       tabButton("uebersicht", "Übersicht"),
+      tabButton("mitbringen", "Mitbringen"),
     ),
     h(
       "section",
@@ -294,6 +343,7 @@ function buildPollShell() {
       h("div", { id: "my-grid" }),
     ),
     h("section", { class: "panel", id: "tab-uebersicht", role: "tabpanel" }),
+    h("section", { class: "panel", id: "tab-mitbringen", role: "tabpanel" }),
   );
   renderTabs();
 }
@@ -314,7 +364,14 @@ function tabButton(id, label) {
 }
 
 function renderTabs() {
-  for (const id of ["eintragen", "uebersicht"]) {
+  if (!document.getElementById("tabbtn-mitbringen")) return;
+  const bring = Boolean(S.poll && S.poll.bring);
+  if (!bring && S.tab === "mitbringen") S.tab = "eintragen";
+  const bringBtn = document.getElementById("tabbtn-mitbringen");
+  bringBtn.hidden = !bring;
+  const taken = S.items.filter((i) => i.by).length;
+  bringBtn.textContent = S.items.length ? `Mitbringen ${taken}/${S.items.length}` : "Mitbringen";
+  for (const id of TABS) {
     document.getElementById(`tabbtn-${id}`).setAttribute("aria-selected", String(S.tab === id));
     document.getElementById(`tab-${id}`).hidden = S.tab !== id;
   }
@@ -342,7 +399,10 @@ function renderPollHead() {
       setTimeout(() => (copyBtn.textContent = "Link kopieren"), 2200);
     },
   });
-  const waText = `${p.title}: Wann hast du Zeit? Trag dich hier ein: ${url}`;
+  const waText = p.bring
+    ? `${p.title}: Wann hast du Zeit und was bringst du mit? Trag dich hier ein: ${url}`
+    : `${p.title}: Wann hast du Zeit? Trag dich hier ein: ${url}`;
+  const isOwner = p.owner === S.store.uid;
   put(head, 
     h("p", { class: "eyebrow" }, h("a", { href: location.pathname, style: "color:inherit", text: "Terminfinder" }), ` · ${short(parse(p.start))} bis ${short(parse(p.end))}`),
     h("h1", { text: p.title }),
@@ -355,6 +415,30 @@ function renderPollHead() {
       copyBtn,
       h("a", { class: "small", href: `https://wa.me/?text=${encodeURIComponent(waText)}`, target: "_blank", rel: "noopener", text: "In WhatsApp teilen" }),
     ),
+    isOwner && !p.bring
+      ? h(
+          "div",
+          {},
+          h("button", {
+            type: "button",
+            class: "btn-quiet small-btn",
+            text: "+ Mitbring-Liste hinzufügen",
+            onclick: async (e) => {
+              e.target.disabled = true;
+              try {
+                await S.store.setBring(S.pollId, true);
+                S.tab = "mitbringen";
+                renderTabs();
+                renderBody();
+              } catch (err) {
+                console.error(err);
+                e.target.disabled = false;
+                e.target.textContent = `Hat nicht geklappt (${(err && err.code) || "Fehler"}). Noch mal versuchen`;
+              }
+            },
+          }),
+        )
+      : null,
   );
 }
 
@@ -441,6 +525,7 @@ function participants() {
 function renderBody() {
   if (!S.poll || !document.getElementById("my-grid")) return;
   if (S.tab === "eintragen") renderMine();
+  else if (S.tab === "mitbringen") renderBring();
   else renderOverview();
 }
 
@@ -587,6 +672,196 @@ async function save(attempt = 1) {
     const why = SAVE_ERRORS[code] || "Unbekannter Fehler.";
     if (status) setStatus(status, `Speichern hat nicht geklappt. ${why} Tippe ein Feld erneut an, um es noch mal zu versuchen. (Fehlercode: ${code})`, true);
   }
+}
+
+// ---------- Mitbringen ----------
+const BRING_ERRORS = {
+  "permission-denied": "Das ist nicht erlaubt, oder jemand anderes war schneller.",
+  unavailable: "Keine Verbindung zum Server.",
+  timeout: "Der Server antwortet nicht.",
+};
+
+async function bringAction(fn) {
+  if (S.bringBusy) return;
+  S.bringBusy = true;
+  const status = document.getElementById("bring-status");
+  try {
+    await fn();
+    if (status) setStatus(status, "");
+  } catch (e) {
+    console.error(e);
+    const code = (e && e.code) || "unbekannt";
+    if (status) setStatus(status, `Hat nicht geklappt. ${BRING_ERRORS[code] || ""} (Fehlercode: ${code})`, true);
+  } finally {
+    S.bringBusy = false;
+  }
+}
+
+function myBringName() {
+  const name = S.me.name.trim();
+  if (name) return name;
+  const input = document.getElementById("bring-name");
+  input?.classList.add("field-attn");
+  input?.focus();
+  const status = document.getElementById("bring-status");
+  if (status) setStatus(status, "Trag zuerst deinen Namen ein.", true);
+  return null;
+}
+
+function renderBring() {
+  const box = document.getElementById("tab-mitbringen");
+  if (!box || !S.poll) return;
+  const me = S.store.uid;
+  const isOwner = S.poll.owner === me;
+  const items = [...S.items].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || a.text.localeCompare(b.text, "de"));
+  const open = items.filter((i) => !i.by);
+  const taken = items.filter((i) => i.by);
+
+  if (S.itemsError) {
+    put(
+      box,
+      h("h2", { text: "Mitbring-Liste" }),
+      h("p", { class: "status err", text: `Die Mitbring-Liste kann gerade nicht geladen werden (Fehlercode: ${S.itemsError}).` }),
+      S.itemsError === "permission-denied"
+        ? h("p", { class: "muted small", text: "Wahrscheinlich sind in Firebase noch die alten Sicherheitsregeln aktiv. Die neuen Regeln stehen in firestore.rules." })
+        : null,
+    );
+    return;
+  }
+
+  // Name nur abfragen, wenn er noch fehlt; der Wert wird mit "Meine Zeiten" geteilt.
+  const nameRow = S.me.name.trim()
+    ? null
+    : h(
+        "label",
+        {},
+        "Wie heißt du?",
+        h("input", {
+          id: "bring-name",
+          maxlength: 40,
+          autocomplete: "nickname",
+          placeholder: "Dein Name",
+          oninput: (e) => {
+            S.me.name = e.target.value;
+            e.target.classList.remove("field-attn");
+            ls.set("tf-name", S.me.name.trim());
+            const other = document.getElementById("my-name");
+            if (other) other.value = S.me.name;
+          },
+        }),
+      );
+
+  const canDelete = (it) => isOwner || (it.addedBy === me && (!it.by || it.by === me));
+  const row = (it) =>
+    h(
+      "li",
+      { class: `item${it.by ? " taken" : ""}${it.by === me ? " mine" : ""}` },
+      h("span", { class: "item-text", text: it.text }),
+      h(
+        "span",
+        { class: "item-side" },
+        it.by
+          ? h("span", { class: `name ${it.by === me ? "y" : ""}`, text: it.by === me ? "Du" : it.byName || "Jemand" })
+          : h("button", {
+              type: "button",
+              class: "btn-primary btn-sm",
+              text: "Bring ich mit",
+              onclick: () => {
+                const name = myBringName();
+                if (name) bringAction(() => S.store.claimItem(S.pollId, it.id, name));
+              },
+            }),
+        it.by && (it.by === me || isOwner)
+          ? h("button", {
+              type: "button",
+              class: "btn-quiet btn-sm",
+              text: it.by === me ? "Doch nicht" : "Freigeben",
+              onclick: () => bringAction(() => S.store.releaseItem(S.pollId, it.id)),
+            })
+          : null,
+        canDelete(it)
+          ? h("button", {
+              type: "button",
+              class: "btn-quiet btn-sm btn-icon",
+              title: "Entfernen",
+              "aria-label": `${it.text} entfernen`,
+              text: "×",
+              onclick: () => bringAction(() => S.store.deleteItem(S.pollId, it.id)),
+            })
+          : null,
+      ),
+    );
+
+  const input = h("input", { id: "bring-text", maxlength: 80, placeholder: "z. B. Nudelsalat, Kasten Wasser, Gitarre", autocomplete: "off" });
+  const add = (mine) => {
+    const text = input.value.trim();
+    if (!text) return input.focus();
+    let name = null;
+    if (mine) {
+      name = myBringName();
+      if (!name) return;
+    }
+    bringAction(async () => {
+      await S.store.addItem(S.pollId, { text, mine, name });
+      input.value = "";
+    });
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      add(true);
+    }
+  });
+
+  // Wer bringt was, nach Personen gruppiert.
+  const byPerson = {};
+  for (const it of taken) (byPerson[it.by] ??= { name: it.by === me ? "Du" : it.byName || "Jemand", things: [] }).things.push(it.text);
+  const persons = Object.values(byPerson).sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+  put(
+    box,
+    h("h2", { text: "Wer bringt was mit?" }),
+    h(
+      "p",
+      { class: "muted" },
+      items.length
+        ? open.length
+          ? `${taken.length} von ${items.length} Sachen sind vergeben, ${open.length} noch offen.`
+          : `Alles vergeben: ${items.length} von ${items.length} ✓`
+        : "Noch steht nichts auf der Liste. Trag ein, was du mitbringst, oder setz etwas auf die Wunschliste.",
+    ),
+    nameRow,
+    h(
+      "div",
+      { class: "bring-add" },
+      h("label", { for: "bring-text", class: "sr-only", text: "Was bringst du mit?" }),
+      input,
+      h("div", { class: "chips" }, h("button", { type: "button", class: "btn-primary", text: "Bring ich mit", onclick: () => add(true) }), h("button", { type: "button", text: "Auf die Wunschliste", onclick: () => add(false) })),
+    ),
+    h("p", { class: "status", id: "bring-status", role: "status" }),
+    open.length ? h("div", { class: "who-group" }, h("p", { class: "eyebrow", text: `Fehlt noch (${open.length})` }), h("ul", { class: "items" }, open.map(row))) : null,
+    taken.length ? h("div", { class: "who-group" }, h("p", { class: "eyebrow", text: `Wird mitgebracht (${taken.length})` }), h("ul", { class: "items" }, taken.map(row))) : null,
+    persons.length
+      ? h(
+          "div",
+          { class: "who-group" },
+          h("p", { class: "eyebrow", text: "Nach Personen" }),
+          h("ul", { class: "persons" }, persons.map((p) => h("li", {}, h("b", { text: p.name }), ": ", p.things.join(", ")))),
+        )
+      : null,
+    isOwner
+      ? h(
+          "p",
+          { class: "small" },
+          h("button", {
+            type: "button",
+            class: "btn-quiet btn-sm",
+            text: "Mitbring-Liste ausblenden",
+            onclick: () => bringAction(() => S.store.setBring(S.pollId, false)),
+          }),
+        )
+      : null,
+  );
 }
 
 // ---------- Übersicht ----------

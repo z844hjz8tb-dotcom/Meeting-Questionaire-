@@ -74,6 +74,44 @@ async function firebaseStore(config) {
     setFixed(id, fixed) {
       return fs.updateDoc(fs.doc(db, "polls", id), { fixed: fixed || null });
     },
+    setBring(id, on) {
+      return withTimeout(fs.updateDoc(fs.doc(db, "polls", id), { bring: Boolean(on) }), 20000);
+    },
+    // Mitbring-Liste: polls/{id}/items/{itemId} = { text, addedBy, by, byName, createdAt }
+    watchItems(id, onData, onError) {
+      return fs.onSnapshot(
+        fs.collection(db, "polls", id, "items"),
+        (qs) =>
+          onData(
+            qs.docs.map((d) => {
+              const x = d.data({ serverTimestamps: "estimate" });
+              return { id: d.id, ...x, createdAt: x.createdAt ? x.createdAt.toMillis() : Date.now() };
+            }),
+          ),
+        onError,
+      );
+    },
+    addItem(id, { text, mine, name }) {
+      return withTimeout(
+        fs.addDoc(fs.collection(db, "polls", id, "items"), {
+          text,
+          addedBy: uid,
+          by: mine ? uid : null,
+          byName: mine ? name : null,
+          createdAt: fs.serverTimestamp(),
+        }),
+        20000,
+      );
+    },
+    claimItem(id, itemId, name) {
+      return withTimeout(fs.updateDoc(fs.doc(db, "polls", id, "items", itemId), { by: uid, byName: name }), 20000);
+    },
+    releaseItem(id, itemId) {
+      return withTimeout(fs.updateDoc(fs.doc(db, "polls", id, "items", itemId), { by: null, byName: null }), 20000);
+    },
+    deleteItem(id, itemId) {
+      return withTimeout(fs.deleteDoc(fs.doc(db, "polls", id, "items", itemId)), 20000);
+    },
   };
 }
 
@@ -135,7 +173,7 @@ function demoStore() {
       return watch(() => {
         const p = load().polls[id];
         if (!p) return onData(null);
-        const { participants, ...rest } = p;
+        const { participants, items, ...rest } = p;
         onData(rest);
       });
     },
@@ -155,6 +193,52 @@ function demoStore() {
       const db = load();
       if (!db.polls[id]) return;
       db.polls[id].fixed = fixed || null;
+      save(db);
+    },
+    async setBring(id, on) {
+      const db = load();
+      if (!db.polls[id]) return;
+      db.polls[id].bring = Boolean(on);
+      save(db);
+    },
+    watchItems(id, onData) {
+      return watch(() => {
+        const p = load().polls[id];
+        onData(p && p.items ? Object.entries(p.items).map(([k, v]) => ({ id: k, ...v })) : []);
+      });
+    },
+    async addItem(id, { text, mine, name }) {
+      const db = load();
+      const p = db.polls[id];
+      if (!p) return;
+      p.items ??= {};
+      p.items[Math.random().toString(36).slice(2, 12)] = {
+        text,
+        addedBy: uid,
+        by: mine ? uid : null,
+        byName: mine ? name : null,
+        createdAt: Date.now() + Object.keys(p.items).length, // stabile Reihenfolge bei schnellem Anlegen
+      };
+      save(db);
+    },
+    async claimItem(id, itemId, name) {
+      const db = load();
+      const it = db.polls[id]?.items?.[itemId];
+      if (!it) return;
+      if (it.by && it.by !== uid) throw Object.assign(new Error("schon vergeben"), { code: "permission-denied" });
+      Object.assign(it, { by: uid, byName: name });
+      save(db);
+    },
+    async releaseItem(id, itemId) {
+      const db = load();
+      const it = db.polls[id]?.items?.[itemId];
+      if (!it) return;
+      Object.assign(it, { by: null, byName: null });
+      save(db);
+    },
+    async deleteItem(id, itemId) {
+      const db = load();
+      if (db.polls[id]?.items) delete db.polls[id].items[itemId];
       save(db);
     },
   };

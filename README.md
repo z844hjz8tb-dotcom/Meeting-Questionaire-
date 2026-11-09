@@ -55,6 +55,7 @@ Fertig:
 - Live-Übersicht: beste Termine, Kalender nach KW, wer wann kann
 - Ersteller legt den Termin fest; alle können ihn in den Kalender übernehmen (.ics, auf dem iPhone per data:-URL, und Google Kalender)
 - Speichern mit automatischer Wiederholung und Fehlercode in der Meldung
+- Mitbring-Liste (optional pro Terminsuche): Wunschliste, „Bring ich mit“, eigene Sachen eintragen, Übersicht nach Personen
 
 Ideen für später:
 1. Eintrag auf anderem Gerät übernehmen („Bist du Julia?“), damit niemand doppelt in der Liste steht

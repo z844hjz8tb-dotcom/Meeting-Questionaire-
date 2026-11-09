@@ -224,3 +224,25 @@ code { font-size: 0.9em; background: var(--bg); padding: 1px 5px; border-radius:
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* Mitbring-Liste */
+.check { display: flex; gap: 10px; align-items: flex-start; font-weight: 700; cursor: pointer; }
+.check input { width: 20px; height: 20px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+.bring-add { display: grid; gap: 8px; }
+.btn-sm { padding: 5px 10px; font-size: 0.85rem; }
+.btn-icon { font-size: 1.1rem; line-height: 1; padding: 4px 9px; color: var(--muted); }
+.small-btn { font-size: 0.9rem; padding: 6px 0; border: 0; color: var(--accent); }
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.item {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+}
+.item.taken { background: color-mix(in srgb, var(--yes) 7%, var(--surface)); }
+.item.mine { border-color: var(--yes); }
+.item-text { font-weight: 700; min-width: 0; overflow-wrap: anywhere; flex: 1 1 140px; }
+.item-side { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.persons { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}

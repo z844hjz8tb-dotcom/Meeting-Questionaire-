@@ -4,7 +4,11 @@ rules_version = '2';
 // - Jeder mit dem Link darf eine Terminsuche und alle Einträge lesen.
 // - Jeder (anonym angemeldete) Browser darf Terminsuchen anlegen.
 // - Jede Person darf nur ihren eigenen Eintrag schreiben.
-// - Nur wer die Terminsuche erstellt hat, darf den festen Termin setzen.
+// - Nur wer die Terminsuche erstellt hat, darf den festen Termin setzen
+//   und die Mitbring-Liste ein- oder ausschalten.
+// - Mitbring-Liste: Jeder darf Sachen eintragen und sich selbst für eine
+//   freie Sache melden oder wieder austragen. Der Ersteller darf alles
+//   freigeben und löschen.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -20,7 +24,7 @@ service cloud.firestore {
       allow read: if true;
 
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['title', 'note', 'start', 'end', 'owner', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['title', 'note', 'start', 'end', 'owner', 'createdAt', 'bring'])
         && request.resource.data.owner == request.auth.uid
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
@@ -28,12 +32,15 @@ service cloud.firestore {
         && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 300))
         && isDateString(request.resource.data.start)
         && isDateString(request.resource.data.end)
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && (!('bring' in request.resource.data) || request.resource.data.bring is bool);
 
       allow update: if signedIn()
         && resource.data.owner == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fixed'])
-        && (request.resource.data.fixed == null || (request.resource.data.fixed is string && request.resource.data.fixed.size() <= 30));
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fixed', 'bring'])
+        && (!('fixed' in request.resource.data) || request.resource.data.fixed == null
+            || (request.resource.data.fixed is string && request.resource.data.fixed.size() <= 30))
+        && (!('bring' in request.resource.data) || request.resource.data.bring is bool);
 
       allow delete: if signedIn() && resource.data.owner == request.auth.uid;
 
@@ -50,6 +57,47 @@ service cloud.firestore {
           && request.resource.data.avail.size() <= 300;
 
         allow delete: if signedIn() && request.auth.uid == uid;
+      }
+
+      match /items/{itemId} {
+        function pollData() {
+          return get(/databases/$(database)/documents/polls/$(pollId)).data;
+        }
+        function isPollOwner() {
+          return signedIn() && pollData().owner == request.auth.uid;
+        }
+        function validName(n) {
+          return n is string && n.size() > 0 && n.size() <= 40;
+        }
+
+        allow read: if true;
+
+        allow create: if signedIn()
+          && pollData().get('bring', false) == true
+          && request.resource.data.keys().hasOnly(['text', 'addedBy', 'by', 'byName', 'createdAt'])
+          && request.resource.data.addedBy == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 80
+          && request.resource.data.createdAt == request.time
+          && ((request.resource.data.by == null && request.resource.data.byName == null)
+              || (request.resource.data.by == request.auth.uid && validName(request.resource.data.byName)));
+
+        // Melden: nur für freie Sachen und nur für sich selbst.
+        // Austragen: die Person selbst oder der Ersteller.
+        allow update: if signedIn()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['by', 'byName'])
+          && ((resource.data.by == null
+                && request.resource.data.by == request.auth.uid
+                && validName(request.resource.data.byName))
+              || ((resource.data.by == request.auth.uid || isPollOwner())
+                && request.resource.data.by == null
+                && request.resource.data.byName == null));
+
+        allow delete: if signedIn()
+          && (isPollOwner()
+              || (resource.data.addedBy == request.auth.uid
+                  && (resource.data.by == null || resource.data.by == request.auth.uid)));
       }
     }
   }
